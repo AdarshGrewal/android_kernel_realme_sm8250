@@ -13,5 +13,6 @@ ifeq ($(strip $(BRAND_SHOW_FLAG)), realme)
 subdir-y += 19795
 subdir-y += 19795_t0_evt2
 subdir-y += 20607
+subdir-y += 19705
 endif
 #endif
