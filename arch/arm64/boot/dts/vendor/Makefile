@@ -10,5 +10,6 @@ vendor := $(srctree)/$(src)
 subdir-y += qcom
 ifeq ($(strip $(BRAND_SHOW_FLAG)), realme)
 #realme SM8250 project
+subdir-y += 19795
 endif
 #endif
