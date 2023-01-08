@@ -12,5 +12,6 @@ ifeq ($(strip $(BRAND_SHOW_FLAG)), realme)
 #realme SM8250 project
 subdir-y += 19795
 subdir-y += 19795_t0_evt2
+subdir-y += 20607
 endif
 #endif
