@@ -820,5 +820,4 @@ QDF_STATUS wma_vdev_self_peer_create(struct vdev_mlme_obj *vdev_mlme);
  * Return: None
  */
 void wma_cleanup_vdev(struct wlan_objmgr_vdev *vdev);
-
 #endif /* WMA_API_H */
