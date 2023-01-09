@@ -392,11 +392,7 @@ int oplus_display_panel_get_brightness(void *buf)
 		return -EINVAL;
 	}
 
-	if(display->panel->oplus_priv.is_raw_backlight) {
-		(*brightness) = display->panel->bl_config.oplus_raw_bl;
-	} else {
-		(*brightness) = display->panel->bl_config.bl_level;
-	}
+	(*brightness) = display->panel->bl_config.bl_level;
 
 	return 0;
 }
@@ -600,8 +596,7 @@ int oplus_display_panel_get_serial_number(void *buf) {
 	 * retry when found panel_serial_info is abnormal.
 	 */
 	for (i = 0;i < 10; i++) {
-		if(!strcmp(display->panel->name, "samsung ams643ye01 amoled fhd+ panel")
-			|| !strcmp(display->panel->name, "samsung ams662zs01 dsc cmd 21623")) {
+		if(!strcmp(display->panel->name, "samsung ams643ye01 amoled fhd+ panel")) {
 			mutex_lock(&display->display_lock);
 			mutex_lock(&display->panel->panel_lock);
 
@@ -651,8 +646,7 @@ int oplus_display_panel_get_serial_number(void *buf) {
 		if (!strcmp(display->panel->name, "samsung amb655xl08 amoled fhd+ panel") ||
 			!strcmp(display->panel->name, "samsung amb655x fhd cmd mode dsc dsi panel")) {
 			panel_serial_info.reg_index = 11;
-		} else if (!strcmp(display->panel->name, "samsung ams643ye01 amoled fhd+ panel")
-			|| !strcmp(display->panel->name, "samsung ams662zs01 dsc cmd 21623")) {
+		} else if (!strcmp(display->panel->name, "samsung ams643ye01 amoled fhd+ panel")) {
 			panel_serial_info.reg_index = 7;
 		} else if (!strcmp(display->panel->oplus_priv.vendor_name, "S6E3HC3")) {
 			panel_serial_info.reg_index = 4;
