@@ -476,7 +476,6 @@ int msm_vidc_get_num_ref_frames(struct msm_vidc_inst *inst)
 	struct v4l2_ctrl *ltr_ctrl;
 	struct v4l2_ctrl *layer_ctrl;
 	u32 codec;
-
 	codec = get_v4l2_codec(inst);
 	if (codec == V4L2_PIX_FMT_VP8)
 		num_ref = num_ref << 1;

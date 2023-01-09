@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2014-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2014-2020, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013 Red Hat
  * Author: Rob Clark <robdclark@gmail.com>
  *
@@ -307,6 +307,7 @@ struct sde_encoder_virt {
 	struct kthread_work input_event_work;
 	struct kthread_work esd_trigger_work;
 	struct input_handler *input_handler;
+	bool input_handler_registered;
 #if defined(OPLUS_FEATURE_PXLW_IRIS5)
 	struct kthread_work disable_autorefresh_work;
 #endif
@@ -797,6 +798,7 @@ void sde_encoder_destroy(struct drm_encoder *drm_enc)
 
 	kfree(sde_enc->input_handler);
 	sde_enc->input_handler = NULL;
+	sde_enc->input_handler_registered = false;
 
 	kfree(sde_enc);
 }
@@ -1196,10 +1198,10 @@ static int sde_encoder_virt_atomic_check(
 	drm_mode_set_crtcinfo(adj_mode, 0);
 
 	has_modeset = sde_crtc_atomic_check_has_modeset(conn_state->state,
-				conn_state->crtc);
+					conn_state->crtc);
 	qsync_dirty = msm_property_is_dirty(&sde_conn->property_info,
-				&sde_conn_state->property_state,
-				CONNECTOR_PROP_QSYNC_MODE);
+					&sde_conn_state->property_state,
+					CONNECTOR_PROP_QSYNC_MODE);
 
 	if (has_modeset && qsync_dirty &&
 		(msm_is_mode_seamless_poms(adj_mode) ||
@@ -3310,21 +3312,6 @@ static void _sde_encoder_input_handler_register(
 	}
 }
 
-static void _sde_encoder_input_handler_unregister(
-		struct drm_encoder *drm_enc)
-{
-	struct sde_encoder_virt *sde_enc = to_sde_encoder_virt(drm_enc);
-
-	if (!sde_encoder_check_curr_mode(drm_enc, MSM_DISPLAY_CMD_MODE))
-		return;
-
-	if (sde_enc->input_handler && sde_enc->input_handler->private) {
-		input_unregister_handler(sde_enc->input_handler);
-		sde_enc->input_handler->private = NULL;
-	}
-
-}
-
 static int _sde_encoder_input_handler(
 		struct sde_encoder_virt *sde_enc)
 {
@@ -3348,6 +3335,7 @@ static int _sde_encoder_input_handler(
 	input_handler->id_table = sde_input_ids;
 
 	sde_enc->input_handler = input_handler;
+	sde_enc->input_handler_registered = false;
 
 	return rc;
 }
@@ -3504,7 +3492,18 @@ static void sde_encoder_virt_enable(struct drm_encoder *drm_enc)
 		return;
 	}
 
-	_sde_encoder_input_handler_register(drm_enc);
+	/* register input handler if not already registered */
+	if (sde_enc->input_handler && !sde_enc->input_handler_registered &&
+			!msm_is_mode_seamless_dms(cur_mode) &&
+		sde_encoder_check_curr_mode(drm_enc, MSM_DISPLAY_CMD_MODE) &&
+			!msm_is_mode_seamless_dyn_clk(cur_mode)) {
+		_sde_encoder_input_handler_register(drm_enc);
+		if (!sde_enc->input_handler || !sde_enc->input_handler->private)
+			SDE_ERROR(
+			"input handler registration failed, rc = %d\n", ret);
+		else
+			sde_enc->input_handler_registered = true;
+	}
 
 	if ((drm_enc->crtc && drm_enc->crtc->state &&
 			drm_enc->crtc->state->connectors_changed &&
@@ -3635,7 +3634,11 @@ static void sde_encoder_virt_disable(struct drm_encoder *drm_enc)
 	if (!sde_encoder_in_clone_mode(drm_enc))
 		sde_encoder_wait_for_event(drm_enc, MSM_ENC_TX_COMPLETE);
 
-	_sde_encoder_input_handler_unregister(drm_enc);
+	if (sde_enc->input_handler && sde_enc->input_handler_registered &&
+		sde_encoder_check_curr_mode(drm_enc, MSM_DISPLAY_CMD_MODE)) {
+		input_unregister_handler(sde_enc->input_handler);
+		sde_enc->input_handler_registered = false;
+	}
 
 	/*
 	 * For primary command mode and video mode encoders, execute the
@@ -5019,21 +5022,12 @@ static bool is_support_panel(struct drm_connector *connector)
 	}
 }
 
-bool is_spread_backlight(struct dsi_display *display, int level)
+bool is_spread_backlight(int level)
 {
-	if ((display != NULL) && (display->panel != NULL)
-		&& (level <= display->panel->oplus_priv.sync_brightness_level) && (level >= 2)) {
+	if((level <= 200)&&(level >= 2))
 		return true;
-	}
-	else if (((display != NULL) && (display->panel != NULL)
-		&& (display->panel->oplus_priv.dc_apollo_sync_enable)
-		&& (((level <= display->panel->oplus_priv.sync_brightness_level) && (level >= 2))
-		|| (level == display->panel->oplus_priv.dc_apollo_sync_brightness_level)))) {
-		return true;
-	}
-	else {
+	else
 		return false;
-	}
 }
 
 int oplus_backlight_wait_vsync(struct drm_encoder *drm_enc)
@@ -5103,21 +5097,6 @@ int oplus_sync_panel_brightness(enum oplus_sync_method method, void *phys_enc)
 		SDE_ATRACE_END("sync_panel_brightness");
 	return rc;
 }
-
-int dc_apollo_sync_hbmon(struct dsi_display *display)
-{
-	if (display == NULL)
-		return 0;
-	if (display->panel == NULL)
-		return 0;
-
-	if (display->panel->oplus_priv.dc_apollo_sync_enable && display->panel->is_hbm_enabled)
-		return 1;
-	else
-		return 0;
-}
-
-extern int oplus_dimlayer_hbm;
 #endif
 
 int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
@@ -5179,8 +5158,7 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 #ifdef OPLUS_BUG_STABILITY
 	if ((is_support_panel(sde_enc->cur_master->connector) == true)) {
 		if (sde_enc->num_phys_encs > 0) {
-			if ((get_current_display_framerate(sde_enc->cur_master->connector) >= 75) && is_spread_backlight(get_main_display(), g_new_bk_level)
-					&& !dc_apollo_sync_hbmon(get_main_display())) {
+			if ((get_current_display_framerate(sde_enc->cur_master->connector) >= 75) && is_spread_backlight(g_new_bk_level)) {
 				if (g_new_bk_level != get_current_display_brightness(sde_enc->cur_master->connector)) {
 					oplus_sync_panel_brightness(OPLUS_PREPARE_KICKOFF_METHOD, sde_enc->phys_encs[0]);
 				}
@@ -5373,7 +5351,7 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error)
 	if (sde_enc && sde_enc->cur_master && sde_enc->cur_master->connector) {
 		if ((is_support_panel(sde_enc->cur_master->connector) == true)) {
 			if (sde_enc->num_phys_encs > 0) {
-				if ((get_current_display_framerate(sde_enc->cur_master->connector) < 75) && is_spread_backlight(get_main_display(), g_new_bk_level)) {
+				if ((get_current_display_framerate(sde_enc->cur_master->connector) < 75) && is_spread_backlight(g_new_bk_level)) {
 					if (g_new_bk_level != get_current_display_brightness(sde_enc->cur_master->connector)) {
 						oplus_sync_panel_brightness(OPLUS_POST_KICKOFF_METHOD, sde_enc->phys_encs[0]);
 					}

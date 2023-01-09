@@ -26,12 +26,9 @@
 
 #ifdef OPLUS_BUG_STABILITY
 #include "sde_trace.h"
-#include <linux/sched.h>
-#include "oplus_onscreenfingerprint.h"
 
 extern u32 g_new_bk_level;
 static DEFINE_SPINLOCK(g_bk_lock);
-extern int oplus_dimlayer_hbm;
 #endif
 
 
@@ -87,11 +84,6 @@ static const struct drm_prop_enum_list e_frame_trigger_mode[] = {
 #ifdef OPLUS_BUG_STABILITY
 extern int oplus_debug_max_brightness;
 extern int oplus_seed_backlight;
-struct dc_apollo_pcc_sync dc_apollo;
-EXPORT_SYMBOL(dc_apollo);
-extern int oplus_backlight_wait_vsync(struct drm_encoder *drm_enc);
-extern int dc_apollo_sync_hbmon(struct dsi_display *display);
-extern bool is_spread_backlight(struct dsi_display *display, int level);
 #endif
 
 static int sde_backlight_device_update_status(struct backlight_device *bd)
@@ -192,40 +184,7 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 			}
 
 		if (is_support_panel_backlight_smooths(display->panel->oplus_priv.vendor_name)) {
-				if (is_spread_backlight(display, bl_lvl) && !dc_apollo_sync_hbmon(display)) {
-					if (display->panel->oplus_priv.dc_apollo_sync_enable) {
-						if ((display->panel->bl_config.bl_level >= display->panel->oplus_priv.sync_brightness_level
-							&& display->panel->bl_config.bl_level < display->panel->oplus_priv.dc_apollo_sync_brightness_level)
-							|| display->panel->bl_config.bl_level == 4) {
-							if (bl_lvl == display->panel->oplus_priv.dc_apollo_sync_brightness_level
-								/*&& dc_apollo_enable*/
-								&& dc_apollo.pcc_last >= display->panel->oplus_priv.dc_apollo_sync_brightness_level_pcc) {
-								rc = wait_event_timeout(dc_apollo.bk_wait, dc_apollo.dc_pcc_updated, msecs_to_jiffies(17));
-								if (!rc) {
-									pr_err("dc wait timeout\n");
-								}
-								else {
-									oplus_backlight_wait_vsync(c_conn->encoder);
-								}
-								dc_apollo.dc_pcc_updated = 0;
-							}
-						}
-						else if (display->panel->bl_config.bl_level < display->panel->oplus_priv.sync_brightness_level
-								&& display->panel->bl_config.bl_level > 4) {
-							if (bl_lvl == display->panel->oplus_priv.dc_apollo_sync_brightness_level
-								/*&& dc_apollo_enable*/
-								&& dc_apollo.pcc_last >= display->panel->oplus_priv.dc_apollo_sync_brightness_level_pcc_min) {
-								rc = wait_event_timeout(dc_apollo.bk_wait, dc_apollo.dc_pcc_updated, msecs_to_jiffies(17));
-								if (!rc) {
-									pr_err("dc wait timeout\n");
-								}
-								else {
-									oplus_backlight_wait_vsync(c_conn->encoder);
-								}
-								dc_apollo.dc_pcc_updated = 0;
-							}
-						}
-					}
+				if ((bl_lvl >= 2) && (bl_lvl <= 200)) {
 					spin_lock(&g_bk_lock);
 					g_new_bk_level = bl_lvl;
 					spin_unlock(&g_bk_lock);
@@ -290,14 +249,6 @@ static int sde_backlight_setup(struct sde_connector *c_conn,
 #else
 	props.brightness = bl_config->brightness_default_level;
 #endif
-
-#ifdef OPLUS_BUG_STABILITY
-		if (display->panel->oplus_priv.dc_apollo_sync_enable) {
-			init_waitqueue_head(&dc_apollo.bk_wait);
-			mutex_init(&dc_apollo.lock);
-		}
-#endif
-
 	snprintf(bl_node_name, BL_NODE_NAME_SIZE, "panel%u-backlight",
 							display_count);
 	c_conn->bl_device = backlight_device_register(bl_node_name, dev->dev,

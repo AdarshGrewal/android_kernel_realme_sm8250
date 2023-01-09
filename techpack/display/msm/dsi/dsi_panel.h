@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2016-2020, The Linux Foundation. All rights reserved.
  */
 
 #ifndef _DSI_PANEL_H_
@@ -137,10 +137,7 @@ struct dsi_backlight_config {
 	bool bl_inverted_dbv;
 #ifdef OPLUS_BUG_STABILITY
 	u32 bl_lvl_backup;
-	u32 bl_dc_real;
 #endif /* OPLUS_BUG_STABILITY */
-	u32 bl_dcs_subtype;
-
 	int en_gpio;
 	/* PWM params */
 	struct pwm_device *pwm_bl;
@@ -228,13 +225,6 @@ struct dsi_panel_oplus_privite {
 	bool low_light_gamma_is_adjusted;
 	u32 low_light_adjust_gamma_level;
 	bool oplus_fp_hbm_config_flag;
-	// Add for apollo support
-	bool is_apollo_support;
-	u32 sync_brightness_level;
-	bool dc_apollo_sync_enable;
-	u32 dc_apollo_sync_brightness_level;
-	u32 dc_apollo_sync_brightness_level_pcc;
-	u32 dc_apollo_sync_brightness_level_pcc_min;
 };
 #endif /* OPLUS_BUG_STABILITY */
 
@@ -300,9 +290,8 @@ struct dsi_panel {
 	int panel_id2;
 	atomic_t esd_pending;
 	bool is_dc_set_color_mode;
-	struct mutex panel_tx_lock;
 #endif
-
+	int vddr_gpio;
 	int panel_test_gpio;
 #if defined(OPLUS_FEATURE_PXLW_IRIS5)
 	bool is_secondary;

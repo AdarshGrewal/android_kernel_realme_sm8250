@@ -289,6 +289,7 @@ struct afe_ctl {
 	/* FTM spk params */
 	uint32_t initial_cal;
 	uint32_t v_vali_flag;
+
 #ifdef OPLUS_ARCH_EXTENDS
 #ifdef CONFIG_SND_SOC_MAX98937
 	uint8_t *dsm_payload;
@@ -302,6 +303,7 @@ struct afe_ctl {
 #ifdef OPLUS_FEATURE_SMARTPA_PM
 	uint8_t *spk_pm_payload;
 #endif /* OPLUS_FEATURE_SMARTPA_PM */
+
 	uint32_t num_spkrs;
 	uint32_t cps_ch_mask;
 	struct afe_cps_hw_intf_cfg *cps_config;
@@ -1918,7 +1920,7 @@ static int q6afe_get_params(u16 port_id, struct mem_mapping_hdr *mem_hdr,
 #ifdef OPLUS_FEATURE_TFA98XX_VI_FEEDBACK
 int get_smartpa_id(void);
 #endif /*OPLUS_FEATURE_TFA98XX_VI_FEEDBACK*/
-static int set_smartpa_pm_status_apr(void *buf, int cmd_size)
+int set_smartpa_pm_status_apr(void *buf, int cmd_size)
 {
 	int ret;
 	int port = 0;
@@ -1984,14 +1986,13 @@ static int set_smartpa_pm_status_apr(void *buf, int cmd_size)
 			 __func__, port);
 
 done:
-	if (packed_param_data) {
+	if (!packed_param_data) {
 		kfree(packed_param_data);
 	}
 	return ret;
 }
-EXPORT_SYMBOL(set_smartpa_pm_status_apr);
 
-static int get_smartpa_pm_result_apr(void *buf, int cmd_size)
+int get_smartpa_pm_result_apr(void *buf, int cmd_size)
 {
 	int ret = 0;
 	int port = 0;
@@ -2042,7 +2043,6 @@ static int get_smartpa_pm_result_apr(void *buf, int cmd_size)
 done:
 	return ret;
 }
-EXPORT_SYMBOL(get_smartpa_pm_result_apr);
 #endif /* OPLUS_FEATURE_SMARTPA_PM */
 
 /*
@@ -2609,6 +2609,7 @@ int afe_dsm_set_status(uint8_t* payload)
 EXPORT_SYMBOL(afe_dsm_set_status);
 #endif
 #endif /* OPLUS_ARCH_EXTENDS */
+
 static int afe_send_cps_config(int src_port)
 {
 	int i = 0;
@@ -10095,12 +10096,36 @@ int afe_spk_prot_feed_back_cfg(int src_port, int dst_port,
 		}
 		this_afe.v4_ch_map_cfg.num_channels = index;
 		this_afe.num_spkrs = index / 2;
+#ifndef OPLUS_ARCH_EXTENDS
+		pr_debug("%s no of channels: %d\n", __func__, index);
+		this_afe.vi_tx_port = src_port;
+		this_afe.vi_rx_port = dst_port;
+		ret = 0;
+	} else {
+		memset(&prot_config, 0, sizeof(prot_config));
+		prot_config.feedback_path_cfg.dst_portid =
+		q6audio_get_port_id(dst_port);
+		if (l_ch) {
+			prot_config.feedback_path_cfg.chan_info[index++] = 1;
+			prot_config.feedback_path_cfg.chan_info[index++] = 2;
+		}
+		if (r_ch) {
+			prot_config.feedback_path_cfg.chan_info[index++] = 3;
+			prot_config.feedback_path_cfg.chan_info[index++] = 4;
+		}
+		prot_config.feedback_path_cfg.num_channels = index;
+		pr_debug("%s no of channels: %d\n", __func__, index);
+		prot_config.feedback_path_cfg.minor_version = 1;
+		ret = afe_spk_prot_prepare(src_port, dst_port,
+				AFE_PARAM_ID_FEEDBACK_PATH_CFG, &prot_config,
+				 sizeof(union afe_spkr_prot_config));
+#endif /* OPLUS_ARCH_EXTENDS */
 	}
-
+#ifdef OPLUS_ARCH_EXTENDS
 	index = 0;
 	memset(&prot_config, 0, sizeof(prot_config));
 	prot_config.feedback_path_cfg.dst_portid =
-		q6audio_get_port_id(dst_port);
+	q6audio_get_port_id(dst_port);
 	if (l_ch) {
 		prot_config.feedback_path_cfg.chan_info[index++] = 1;
 		prot_config.feedback_path_cfg.chan_info[index++] = 2;
@@ -10116,13 +10141,7 @@ int afe_spk_prot_feed_back_cfg(int src_port, int dst_port,
 	ret = afe_spk_prot_prepare(src_port, dst_port,
 			AFE_PARAM_ID_FEEDBACK_PATH_CFG, &prot_config,
 			 sizeof(union afe_spkr_prot_config));
-
-	prot_config.feedback_path_cfg.num_channels = index;
-	pr_debug("%s no of channels: %d\n", __func__, index);
-	prot_config.feedback_path_cfg.minor_version = 1;
-	ret = afe_spk_prot_prepare(src_port, dst_port,
-			AFE_PARAM_ID_FEEDBACK_PATH_CFG, &prot_config,
-			 sizeof(union afe_spkr_prot_config));
+#endif /* OPLUS_ARCH_EXTENDS */
 fail_cmd:
 	return ret;
 }
@@ -10398,9 +10417,6 @@ static int afe_set_cal_sp_th_vi_cfg(int32_t cal_type, size_t data_size,
 
 	if (cal_data == NULL ||
 	    data_size > sizeof(*cal_data) ||
-	    (data_size < sizeof(cal_data->cal_hdr) +
-		sizeof(cal_data->cal_data) +
-		sizeof(cal_data->cal_info.mode)) ||
 	    this_afe.cal_data[AFE_FB_SPKR_PROT_TH_VI_CAL] == NULL)
 		goto done;
 
@@ -10618,9 +10634,6 @@ static int afe_get_cal_sp_th_vi_param(int32_t cal_type, size_t data_size,
 
 	if (cal_data == NULL ||
 	    data_size > sizeof(*cal_data) ||
-	    (data_size < sizeof(cal_data->cal_hdr) +
-		sizeof(cal_data->cal_data) +
-		sizeof(cal_data->cal_info.mode)) ||
 	    this_afe.cal_data[AFE_FB_SPKR_PROT_TH_VI_CAL] == NULL)
 		return 0;
 

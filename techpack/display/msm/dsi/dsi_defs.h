@@ -53,11 +53,9 @@
 								##__VA_ARGS__)
 
 #ifdef OPLUS_BUG_STABILITY
-#include <soc/oplus/system/oplus_mm_kevent_fb.h>
 #define DSI_MM_ERR(fmt, ...)	\
 	do { \
 		DRM_DEV_ERROR(NULL, "[msm-dsi-error]: " fmt, ##__VA_ARGS__); \
-		mm_fb_display_kevent_named(MM_FB_KEY_RATELIMIT_1H, fmt, ##__VA_ARGS__); \
 	} while(0)
 #endif /* OPLUS_BUG_STABILITY */
 
@@ -647,6 +645,7 @@ struct dsi_video_engine_cfg {
 	bool hsa_lp11_en;
 	bool eof_bllp_lp11_en;
 	bool bllp_lp11_en;
+	bool splash_dms;
 	enum dsi_video_traffic_mode traffic_mode;
 	u32 vc_id;
 	u32 dma_sched_line;
@@ -765,6 +764,7 @@ struct dsi_display_mode {
 #endif /*OPLUS_FEATURE_ADFR*/
 	enum dsi_op_mode panel_mode;
 	bool is_preferred;
+	bool splash_dms;
 	struct dsi_display_mode_priv_info *priv_info;
 };
 

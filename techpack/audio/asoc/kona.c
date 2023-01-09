@@ -40,6 +40,10 @@
 #include "codecs/bolero/wsa-macro.h"
 #include "kona-port-config.h"
 
+#ifdef CONFIG_SND_SOC_SIA81XX
+#include "../../../../oplus/kernel_4.19/audio/codecs/sia81xx/sia81xx_aux_dev_if.h"
+#endif /* OPLUS_SND_SOC_SIA81XX */
+
 #ifdef OPLUS_BUG_COMPATIBILITY
 #include <linux/regulator/consumer.h>
 #endif /* OPLUS_BUG_COMPATIBILITY */
@@ -8384,6 +8388,15 @@ static int msm_init_aux_dev(struct platform_device *pdev,
 	int codecs_found = 0;
 	int ret = 0;
 
+
+
+#ifdef CONFIG_SND_SOC_SIA81XX
+	const char *codec_vendor;
+	int rc = 0;
+	int sia81xx_aux_num = 0;
+	int sia81xx_codec_conf_num = 0;
+#endif /* CONFIG_SND_SOC_SIA81XX */
+
 	/* Get maximum WSA device count for this platform */
 	ret = of_property_read_u32(pdev->dev.of_node,
 				   "qcom,wsa-max-devs", &wsa_max_devs);
@@ -8588,6 +8601,19 @@ aux_dev_register:
 	card->num_aux_devs = wsa_max_devs + codec_aux_dev_cnt;
 	card->num_configs = wsa_max_devs + codec_aux_dev_cnt;
 
+#ifdef CONFIG_SND_SOC_SIA81XX
+	rc = of_property_read_string(pdev->dev.of_node,
+			"oplus,speaker-vendor", &codec_vendor);
+	if (!rc) {
+		if (!strcmp(codec_vendor, "sia81xx")) {
+			sia81xx_aux_num = soc_sia81xx_get_aux_num(pdev);
+			sia81xx_codec_conf_num = soc_sia81xx_get_codec_conf_num(pdev);
+			card->num_aux_devs += sia81xx_aux_num;
+			card->num_configs += sia81xx_codec_conf_num;
+		}
+	}
+#endif
+
 	/* Alloc array of AUX devs struct */
 	msm_aux_dev = devm_kcalloc(&pdev->dev, card->num_aux_devs,
 				       sizeof(struct snd_soc_aux_dev),
@@ -8637,6 +8663,15 @@ aux_dev_register:
 		msm_codec_conf[i].of_node =
 				wsa881x_dev_info[i].of_node;
 	}
+
+#ifdef CONFIG_SND_SOC_SIA81XX
+	if (!rc) {
+		if (!strcmp(codec_vendor, "sia81xx")) {
+        		soc_sia81xx_init(pdev, msm_aux_dev + 1, sia81xx_aux_num,
+                                msm_codec_conf + 1, sia81xx_codec_conf_num);
+		}
+	}
+#endif
 
 	for (i = 0; i < codec_aux_dev_cnt; i++) {
 		msm_aux_dev[wsa_max_devs + i].name = NULL;

@@ -292,8 +292,7 @@ void msm_iounmap(struct platform_device *pdev, void __iomem *addr)
 
 void msm_writel(u32 data, void __iomem *addr)
 {
-	if (reglog)
-		pr_debug("IO:W %pK %08x\n", addr, data);
+	pr_debug("IO:W %pK %08x\n", addr, data);
 	writel(data, addr);
 }
 
@@ -1487,7 +1486,7 @@ void msm_mode_object_event_notify(struct drm_mode_object *obj,
 
 static int msm_release(struct inode *inode, struct file *filp)
 {
-	struct drm_file *file_priv;
+	struct drm_file *file_priv = filp->private_data;
 	struct drm_minor *minor;
 	struct drm_device *dev;
 	struct msm_drm_private *priv;
@@ -1499,7 +1498,6 @@ static int msm_release(struct inode *inode, struct file *filp)
 
 	mutex_lock(&msm_release_lock);
 
-	file_priv = filp->private_data;
 	if (!file_priv) {
 		ret = -EINVAL;
 		goto end;
@@ -1541,7 +1539,7 @@ static int msm_release(struct inode *inode, struct file *filp)
 	 * Handle preclose operation here for removing fb's whose
 	 * refcount > 1. This operation is not triggered from upstream
 	 * drm as msm_driver does not support DRIVER_LEGACY feature.
-	 */
+	*/
 	msm_preclose(dev, file_priv);
 
 	ret = drm_release(inode, filp);

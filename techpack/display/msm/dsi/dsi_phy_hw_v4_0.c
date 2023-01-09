@@ -9,7 +9,6 @@
 #include "dsi_hw.h"
 #include "dsi_phy_hw.h"
 #include "dsi_catalog.h"
-#include "dsi_display.h"
 
 #define DSIPHY_CMN_REVISION_ID0						0x000
 #define DSIPHY_CMN_REVISION_ID1						0x004
@@ -326,7 +325,6 @@ static void dsi_phy_hw_dphy_enable(struct dsi_phy_hw *phy,
 	u32 glbl_hstx_str_ctrl_0 = 0;
 	u32 glbl_rescode_top_ctrl = 0;
 	u32 glbl_rescode_bot_ctrl = 0;
-	struct dsi_display *display = get_main_display();
 
 	/* Alter PHY configurations if data rate less than 1.5GHZ*/
 	if (cfg->bit_clk_rate_hz <= 1500000000)
@@ -341,13 +339,8 @@ static void dsi_phy_hw_dphy_enable(struct dsi_phy_hw *phy,
 		glbl_hstx_str_ctrl_0 = 0x88;
 #else
 		if (oplus_enhance_mipi_strength) {
-			if (display && display->panel && display->panel->oplus_priv.is_oplus_project) {
-				glbl_str_swi_cal_sel_ctrl = 0x03;
-				glbl_hstx_str_ctrl_0 = 0xee;
-			} else {
-				glbl_str_swi_cal_sel_ctrl = 0x01;
-				glbl_hstx_str_ctrl_0 = 0xFF;
-			}
+			glbl_str_swi_cal_sel_ctrl = 0x01;
+			glbl_hstx_str_ctrl_0 = 0xFF;
 		} else {
 			glbl_str_swi_cal_sel_ctrl = 0x01;
 			glbl_hstx_str_ctrl_0 = 0xCC;
