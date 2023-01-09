@@ -227,6 +227,7 @@ struct dsi_panel_oplus_privite {
 	bool low_light_adjust_gamma_support;
 	bool low_light_gamma_is_adjusted;
 	u32 low_light_adjust_gamma_level;
+	bool oplus_fp_hbm_config_flag;
 	// Add for apollo support
 	bool is_apollo_support;
 	u32 sync_brightness_level;
