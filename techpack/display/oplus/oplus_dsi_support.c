@@ -11,7 +11,7 @@
 **   Hu.Jie          2018/03/17        1.0           Build this moudle
 ******************************************************************/
 #include "oplus_dsi_support.h"
-#include <soc/oplus/boot_mode.h>
+#include <soc/oppo/boot_mode.h>
 #include <soc/oplus/system/oplus_project.h>
 #include <soc/oplus/device_info.h>
 #include <linux/notifier.h>
