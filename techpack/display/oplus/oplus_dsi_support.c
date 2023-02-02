@@ -12,8 +12,8 @@
 ******************************************************************/
 #include "oplus_dsi_support.h"
 #include <soc/oppo/boot_mode.h>
-#include <soc/oppo/system/oplus_project.h>
-#include <soc/oppo/device_info.h>
+#include <soc/oplus/system/oplus_project.h>
+#include <soc/oplus/device_info.h>
 #include <linux/notifier.h>
 #include <linux/module.h>
 
