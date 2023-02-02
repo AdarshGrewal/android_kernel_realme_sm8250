@@ -90,7 +90,6 @@ extern int oplus_debug_max_brightness;
 extern int oplus_seed_backlight;
 struct dc_apollo_pcc_sync dc_apollo;
 EXPORT_SYMBOL(dc_apollo);
-extern int dc_apollo_enable;
 extern int oplus_backlight_wait_vsync(struct drm_encoder *drm_enc);
 extern int dc_apollo_sync_hbmon(struct dsi_display *display);
 extern bool is_spread_backlight(struct dsi_display *display, int level);
