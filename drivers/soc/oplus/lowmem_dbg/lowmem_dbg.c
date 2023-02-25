@@ -564,7 +564,7 @@ static int acct_dma_dize(const void *data, struct file *file,
 	dbuf = file->private_data;
 	if (dbuf->size && dmainfo->verbose) {
 		pr_info("%s:%ldkB\n",
-			dbuf->buf_name,
+			dbuf->name,
 			dbuf->size / SZ_1K);
 	}
 
