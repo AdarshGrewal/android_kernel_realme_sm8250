@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2020, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2020, Oplus. All rights reserved.
  */
 
 #include <linux/module.h>
@@ -13,8 +13,14 @@
 #include "cam_debug_util.h"
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
+#include "oplus_cam_eeprom_core.h"
+
+#ifndef OPLUS_FEATURE_CAMERA_COMMON
+#define OPLUS_FEATURE_CAMERA_COMMON
+#endif
 
 #define MAX_READ_SIZE  0x7FFFF
+#define         USER_MAT                0
 
 /**
  * cam_eeprom_read_memory() - read map data into buffer
@@ -33,7 +39,9 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 	struct cam_sensor_i2c_reg_array    i2c_reg_array = {0};
 	struct cam_eeprom_memory_map_t    *emap = block->map;
 	struct cam_eeprom_soc_private     *eb_info = NULL;
-	uint8_t                           *memptr = block->mapdata;
+#ifdef OPLUS_FEATURE_CAMERA_COMMON
+       uint8_t                           *memptr = block->mapdata;
+#endif
 
 	if (!e_ctrl) {
 		CAM_ERR(CAM_EEPROM, "e_ctrl is NULL");
@@ -43,7 +51,7 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 	eb_info = (struct cam_eeprom_soc_private *)e_ctrl->soc_info.soc_private;
 
 	for (j = 0; j < block->num_map; j++) {
-		CAM_DBG(CAM_EEPROM, "slave-addr = 0x%X", emap[j].saddr);
+		CAM_DBG(CAM_EEPROM, "slave-addr = 0x%X  j = %d", emap[j].saddr, j);
 		if (emap[j].saddr) {
 			eb_info->i2c_info.slave_addr = emap[j].saddr;
 			rc = cam_eeprom_update_i2c_info(e_ctrl,
@@ -102,20 +110,29 @@ static int cam_eeprom_read_memory(struct cam_eeprom_ctrl_t *e_ctrl,
 				return rc;
 			}
 		}
-
-		if (emap[j].mem.valid_size) {
-			rc = camera_io_dev_read_seq(&e_ctrl->io_master_info,
-				emap[j].mem.addr, memptr,
-				emap[j].mem.addr_type,
-				emap[j].mem.data_type,
-				emap[j].mem.valid_size);
-			if (rc < 0) {
-				CAM_ERR(CAM_EEPROM, "read failed rc %d",
-					rc);
-				return rc;
-			}
-			memptr += emap[j].mem.valid_size;
-		}
+#ifdef OPLUS_FEATURE_CAMERA_COMMON
+              if (e_ctrl->io_master_info.cci_client->sid==0x24) {
+                      rc = oplus_cam_eeprom_read_memory(e_ctrl, emap, j, memptr);
+		        if (rc < 0) {
+			    CAM_ERR(CAM_EEPROM, "cam_eeprom_read_memory_oem failed rc %d",
+				    rc);
+			    return rc;
+		       }
+              }else{
+#endif
+                if (emap[j].mem.valid_size) {
+                    rc = camera_io_dev_read_seq(&e_ctrl->io_master_info,
+                    emap[j].mem.addr, memptr,
+                    emap[j].mem.addr_type,
+                    emap[j].mem.data_type,
+                    emap[j].mem.valid_size);
+                    if (rc) {
+                        CAM_ERR(CAM_EEPROM, "read failed rc %d",rc);
+                        return rc;
+                    }
+                    memptr += emap[j].mem.valid_size;
+                }
+                }
 
 		if (emap[j].pageen.valid_size) {
 			i2c_reg_settings.addr_type = emap[j].pageen.addr_type;
@@ -355,20 +372,17 @@ static int32_t cam_eeprom_get_dev_handle(struct cam_eeprom_ctrl_t *e_ctrl,
 
 	eeprom_acq_dev.device_handle =
 		cam_create_device_hdl(&bridge_params);
-	if (eeprom_acq_dev.device_handle <= 0) {
-		CAM_ERR(CAM_EEPROM, "Can not create device handle");
-		return -EFAULT;
-	}
 	e_ctrl->bridge_intf.device_hdl = eeprom_acq_dev.device_handle;
 	e_ctrl->bridge_intf.session_hdl = eeprom_acq_dev.session_handle;
 
-	CAM_DBG(CAM_EEPROM, "Device Handle: %d", eeprom_acq_dev.device_handle);
+       CAM_DBG(CAM_EEPROM, "Device Handle: %d", eeprom_acq_dev.device_handle);
 	if (copy_to_user(u64_to_user_ptr(cmd->handle),
 		&eeprom_acq_dev, sizeof(struct cam_sensor_acquire_dev))) {
 		CAM_ERR(CAM_EEPROM, "EEPROM:ACQUIRE_DEV: copy to user failed");
 		return -EFAULT;
-	}
-	return 0;
+       }
+
+       return 0;
 }
 
 /**
@@ -992,16 +1006,7 @@ static int32_t cam_eeprom_init_pkt_parser(struct cam_eeprom_ctrl_t *e_ctrl,
 					rc = -EINVAL;
 					goto end;
 				}
-
-				if ((num_map + 1) >=
-					(MSM_EEPROM_MAX_MEM_MAP_CNT *
-					MSM_EEPROM_MEMORY_MAP_MAX_SIZE)) {
-					CAM_ERR(CAM_EEPROM, "OOB error");
-					rc = -EINVAL;
-					goto end;
-				}
 				/* Configure the following map slave address */
-
 				map[num_map + 1].saddr = i2c_info->slave_addr;
 				rc = cam_eeprom_update_slaveInfo(e_ctrl,
 					cmd_buf);
@@ -1449,6 +1454,13 @@ int32_t cam_eeprom_driver_cmd(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 	}
 
 	mutex_lock(&(e_ctrl->eeprom_mutex));
+#ifdef OPLUS_FEATURE_CAMERA_COMMON
+        rc = oplus_cam_eeprom_driver_cmd(e_ctrl, arg);
+        if (rc) {
+            CAM_ERR(CAM_EEPROM, "Failed in check eeprom data");
+            goto release_mutex;
+        }
+#endif
 	switch (cmd->op_code) {
 	case CAM_QUERY_CAP:
 		eeprom_cap.slot_info = e_ctrl->soc_info.index;
@@ -1467,7 +1479,7 @@ int32_t cam_eeprom_driver_cmd(struct cam_eeprom_ctrl_t *e_ctrl, void *arg)
 			rc = -EFAULT;
 			goto release_mutex;
 		}
-		CAM_DBG(CAM_EEPROM, "eeprom_cap: ID: %d", eeprom_cap.slot_info);
+              CAM_DBG(CAM_EEPROM, "eeprom_cap: ID: %d", eeprom_cap.slot_info);
 		break;
 	case CAM_ACQUIRE_DEV:
 		rc = cam_eeprom_get_dev_handle(e_ctrl, arg);
