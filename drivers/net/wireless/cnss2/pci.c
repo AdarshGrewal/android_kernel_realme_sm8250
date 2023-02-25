@@ -1011,6 +1011,17 @@ int cnss_pci_link_down(struct device *dev)
 				  "cnss-enable-self-recovery"))
 		plat_priv->ctrl_params.quirks |= BIT(LINK_DOWN_SELF_RECOVERY);
 
+	plat_priv = pci_priv->plat_priv;
+	if (!plat_priv) {
+		cnss_pr_err("plat_priv is NULL\n");
+		return -ENODEV;
+	}
+
+	if (pci_priv->drv_connected_last &&
+	    of_property_read_bool(plat_priv->plat_dev->dev.of_node,
+				  "cnss-enable-self-recovery"))
+		plat_priv->ctrl_params.quirks |= BIT(LINK_DOWN_SELF_RECOVERY);
+
 	cnss_pr_err("PCI link down is detected by drivers\n");
 
 	ret = msm_pcie_pm_control(MSM_PCIE_HANDLE_LINKDOWN,
@@ -2404,6 +2415,7 @@ int cnss_wlan_register_driver(struct cnss_wlan_driver *driver_ops)
 	struct cnss_pci_data *pci_priv;
 	unsigned int timeout;
 	struct cnss_cal_info *cal_info;
+	u16 wlan_driver_delay_time = 1000;
 
 	if (!plat_priv) {
 		cnss_pr_err("plat_priv is NULL\n");
@@ -2458,6 +2470,8 @@ int cnss_wlan_register_driver(struct cnss_wlan_driver *driver_ops)
 	}
 
 register_driver:
+	cnss_pr_dbg("Delay %dms before probe WLAN driver\n", wlan_driver_delay_time);
+	msleep(wlan_driver_delay_time);
 	reinit_completion(&plat_priv->power_up_complete);
 	ret = cnss_driver_event_post(plat_priv,
 				     CNSS_DRIVER_EVENT_REGISTER_DRIVER,
