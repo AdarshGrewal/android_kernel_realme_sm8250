@@ -58,6 +58,14 @@
 #define MIN_PREFILL_LINES      35
 
 #ifdef OPLUS_BUG_STABILITY
+/* add for Olso bringup */
+unsigned int dis_set_first_level = 0;
+extern int lcd_set_bias(bool enable);
+extern int lcd_bl_set_led_brightness(int value);
+extern int turn_on_ktz8866_hw_en(bool on);
+/* A tablet Pad, modify mipi */
+bool mipi_c_phy_oslo_flag;
+
 /* Add for solve sau issue*/
 extern int lcd_closebl_flag;
 /* Add for fingerprint silence*/
@@ -68,6 +76,7 @@ extern void TPS65132_pw_enable(int enable);
 
 #ifdef OPLUS_BUG_STABILITY
 extern int last_fps;
+extern volatile bool panel_initialized_flag;
 #endif /*OPLUS_BUG_STABILITY*/
 
 __attribute__((weak)) void lcd_queue_load_tp_fw(void) {return;}
@@ -368,7 +377,14 @@ static int dsi_panel_gpio_request(struct dsi_panel *panel)
 			goto error_release_mode_sel;
 		}
 	}
-
+	if (gpio_is_valid(panel->vddr_gpio)) {
+		rc = gpio_request(panel->vddr_gpio, "vddr_gpio");
+		if (rc) {
+			DSI_ERR("request for vddr_gpio failed, rc=%d\n", rc);
+			if (gpio_is_valid(panel->vddr_gpio))
+				gpio_free(panel->vddr_gpio);
+		}
+	}
 	if (gpio_is_valid(panel->panel_test_gpio)) {
 		rc = gpio_request(panel->panel_test_gpio, "panel_test_gpio");
 		if (rc) {
@@ -395,6 +411,15 @@ static int dsi_panel_gpio_request(struct dsi_panel *panel)
 			DSI_ERR("request for panel_vddr_aod_en_gpio failed, rc=%d\n", rc);
 			if (gpio_is_valid(r_config->panel_vddr_aod_en_gpio))
 				gpio_free(r_config->panel_vddr_aod_en_gpio);
+		}
+	}
+
+	if (gpio_is_valid(r_config->tp_cs_gpio)) {
+		rc = gpio_request(r_config->tp_cs_gpio, "panel_tp_cs_gpio");
+		if (rc) {
+			DSI_ERR("request for panel_tp_cs_gpio failed, rc=%d\n", rc);
+			if (gpio_is_valid(r_config->tp_cs_gpio))
+				gpio_free(r_config->tp_cs_gpio);
 		}
 	}
 
@@ -447,6 +472,9 @@ static int dsi_panel_gpio_release(struct dsi_panel *panel)
 
 	if (gpio_is_valid(panel->reset_config.lcd_mode_sel_gpio))
 		gpio_free(panel->reset_config.lcd_mode_sel_gpio);
+
+	if (gpio_is_valid(panel->vddr_gpio))
+		gpio_free(panel->vddr_gpio);
 
 	if (gpio_is_valid(panel->panel_test_gpio))
 		gpio_free(panel->panel_test_gpio);
@@ -612,7 +640,6 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 #ifdef OPLUS_BUG_STABILITY
 	pr_err("debug for dsi_panel_power_on\n");
 #endif
-
 #ifdef OPLUS_BUG_STABILITY
 	if (!strstr(panel->oplus_priv.vendor_name,"NT36672C")) {
 		rc = dsi_pwr_enable_regulator(&panel->power_info, true);
@@ -622,7 +649,42 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 		}
 	}
 #endif /*OPLUS_BUG_STABILITY*/
+	if (gpio_is_valid(panel->reset_config.tp_cs_gpio)) {
+		rc = gpio_direction_output(panel->reset_config.tp_cs_gpio, 1);
+		if (rc)
+			DSI_ERR("unable to set dir for tp_cs_gpio rc=%d", rc);
+		gpio_set_value(panel->reset_config.tp_cs_gpio, 1);
+	}
+#ifdef OPLUS_BUG_STABILITY
+	dis_set_first_level = 1;
+	if(panel->nt36523w_ktz8866) {
+		/* add for oslo bringup */
+		/*ktz8866 power*/
+		pr_info("%d %s dis_set_first_level=%d\n", __LINE__, __func__, dis_set_first_level);
+		rc = turn_on_ktz8866_hw_en(true);
+		if (rc) {
+			DSI_ERR("[%s] failed to turn_on_ktz8866_hw_en, rc=%d\n",
+				panel->name, rc);
+			goto error_disable_vregs;
+		}
+		rc = lcd_set_bias(true);
+		pr_info("lcd_set_bias(true)\n");
+		if (rc) {
+			DSI_ERR("[%s] failed to lcd_set_bias, rc=%d\n",
+				panel->name, rc);
+			goto error_disable_vregs;
+		}
+	}
+#endif /*OPLUS_BUG_STABILITY*/
 
+	if (gpio_is_valid(panel->vddr_gpio)) {
+		rc = gpio_direction_output(panel->vddr_gpio, 1);
+		DSI_ERR("enable vddr gpio\n");
+		if (rc) {
+			DSI_ERR("unable to set dir for vddr gpio rc=%d\n", rc);
+			goto error_disable_vddr;
+		}
+	}
 	rc = dsi_panel_set_pinctrl_state(panel, true);
 	if (rc) {
 		DSI_ERR("[%s] failed to set pinctrl, rc=%d\n", panel->name, rc);
@@ -663,7 +725,8 @@ static int dsi_panel_power_on(struct dsi_panel *panel)
 #ifdef OPLUS_BUG_STABILITY
 	if (!strcmp(panel->name,"samsung amb655uv01 amoled fhd+ panel with DSC") ||
 		!strcmp(panel->name,"boe nt37800 amoled fhd+ panel with DSC") ||
-		!strcmp(panel->name,"samsung fhd amoled")) {
+		!strcmp(panel->name,"samsung fhd amoled") ||
+		!strcmp(panel->name, "nt36523 lcd vid mode dsi panel")) {
 		usleep_range(10, 11);
 	} else if (!strcmp(panel->name,"samsung ams643xf01 amoled fhd+ panel") ||
 			!strcmp(panel->name,"samsung SOFE03F dsc cmd mode panel")) {
@@ -692,6 +755,10 @@ error_disable_gpio:
 
 	(void)dsi_panel_set_pinctrl_state(panel, false);
 
+error_disable_vddr:
+		if (gpio_is_valid(panel->vddr_gpio))
+			gpio_set_value(panel->vddr_gpio, 0);
+
 error_disable_vregs:
 	(void)dsi_pwr_enable_regulator(&panel->power_info, false);
 
@@ -711,22 +778,19 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 
 #ifdef OPLUS_BUG_STABILITY
 	int esd_check = get_esd_check_happened();
-
 	pr_err("debug for dsi_panel_power_off\n");
 #endif
 
 #ifdef OPLUS_BUG_STABILITY
-	if (strstr(panel->oplus_priv.vendor_name,"NT36672C")) {
-		if(!esd_check && mdss_tp_black_gesture_status()) {
-			tp_black_power_on_ff_flag = 0;
-			pr_err("%s : [TP] tp gesture is enable, not to dsi_panel_power_off, tp_black_power_on_ff_flag = %d\n",
-				__func__, tp_black_power_on_ff_flag);
-			return rc;
-		}
-
-		tp_black_power_on_ff_flag = 1;
-		pr_err("%s:[TP]tp_black_power_on_ff_flag = %d\n",__func__,tp_black_power_on_ff_flag);
+	if(!esd_check && mdss_tp_black_gesture_status()) {
+		tp_black_power_on_ff_flag = 0;
+		pr_err("%s : [TP] tp gesture is enable, not to dsi_panel_power_off, tp_black_power_on_ff_flag = %d\n",
+			__func__, tp_black_power_on_ff_flag);
+		return rc;
 	}
+
+	tp_black_power_on_ff_flag = 1;
+	pr_err("%s:[TP]tp_black_power_on_ff_flag = %d\n",__func__,tp_black_power_on_ff_flag);
 #endif /*OPLUS_BUG_STABILITY*/
 
 	if (gpio_is_valid(panel->reset_config.disp_en_gpio))
@@ -770,6 +834,12 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 		gpio_set_value(panel->reset_config.panel_vout_gpio, 0);
 #endif
 
+	if (gpio_is_valid(panel->vddr_gpio)) {
+		gpio_set_value(panel->vddr_gpio, 0);
+		DSI_ERR("disable vddr gpio\n");
+		msleep(1);
+	}
+
 	if (gpio_is_valid(panel->panel_test_gpio)) {
 		rc = gpio_direction_input(panel->panel_test_gpio);
 		if (rc)
@@ -783,10 +853,38 @@ static int dsi_panel_power_off(struct dsi_panel *panel)
 		       rc);
 	}
 
+#ifdef OPLUS_BUG_STABILITY
+	if(panel->nt36523w_ktz8866) {
+	/* add for oslo bringup */
+	/*ktz8866 power off*/
+		pr_info("lcd_set_bias false\n");
+		rc = lcd_set_bias(false);
+		if (rc) {
+			DSI_ERR("[%s] failed set lcd_set_bias false, rc=%d\n", panel->name, rc);
+		}
+
+		rc = turn_on_ktz8866_hw_en(false);
+		if (rc) {
+			DSI_ERR("[%s] failed set turn_on_ktz8866_hw_en false, rc=%d\n", panel->name, rc);
+		}
+
+		if(gpio_is_valid(panel->reset_config.tp_cs_gpio)) {
+			rc = gpio_direction_output(panel->reset_config.tp_cs_gpio, 0);
+			if (rc)
+				DSI_ERR("unable to set dir for tp_cs_gpio rc=%d", rc);
+			gpio_set_value(panel->reset_config.tp_cs_gpio, 0);
+		}
+	}
+#endif
+
 	rc = dsi_pwr_enable_regulator(&panel->power_info, false);
 	if (rc)
 		DSI_ERR("[%s] failed to enable vregs, rc=%d\n",
 				panel->name, rc);
+#ifdef OPLUS_BUG_STABILITY
+	/* Add for ensure complete power down done of hardware */
+	usleep_range(70 * 1000, (70 * 1000) + 100);
+#endif
 
 	return rc;
 }
@@ -823,8 +921,6 @@ int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
 	if (!panel || !panel->cur_mode)
 		return -EINVAL;
 
-	mutex_lock(&panel->panel_tx_lock);
-
 	mode = panel->cur_mode;
 
 	cmds = mode->priv_info->cmd_sets[type].cmds;
@@ -833,6 +929,11 @@ int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
 	SDE_EVT32(type, state, count);
 
 #ifdef OPLUS_BUG_STABILITY
+	rc = dsi_panel_tx_cmd_hbm_pre_check(panel, type, cmd_set_prop_map);
+	if (rc == 1) {
+		return 0;
+	}
+
 	if (type != DSI_CMD_READ_SAMSUNG_PANEL_REGISTER_ON
 		&& type != DSI_CMD_READ_SAMSUNG_PANEL_REGISTER_OFF) {
 		#ifdef OPLUS_FEATURE_ADFR
@@ -865,7 +966,6 @@ int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
 		rc = iris_pt_send_panel_cmd(panel, &(mode->priv_info->cmd_sets[type]));
 		if (rc)
 			DSI_ERR("iris_pt_send_panel_cmd failed\n");
-			mutex_unlock(&panel->panel_tx_lock);
 		return rc;
     }
 #endif
@@ -895,8 +995,12 @@ int dsi_panel_tx_cmd_set(struct dsi_panel *panel,
 					((cmds->post_wait_ms*1000)+10));
 		cmds++;
 	}
+
+#ifdef OPLUS_BUG_STABILITY
+	dsi_panel_tx_cmd_hbm_post_check(panel, type);
+#endif /*OPLUS_BUG_STABILITY*/
+
 error:
-	mutex_unlock(&panel->panel_tx_lock);
 	return rc;
 }
 
@@ -1090,7 +1194,7 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 				if (bl_lvl > panel->bl_config.bl_normal_max_level)
 					bl_lvl = backlight_500_600nit_buf[bl_lvl - PANEL_MAX_NOMAL_BRIGHTNESS];
 			} else {
-				if (bl_lvl > HBM_BASE_600NIT) {
+				if (bl_lvl >= HBM_BASE_600NIT) {
 					if((bl_lvl - HBM_BASE_600NIT > 5) && (enable_global_hbm_flags == 0))
 						mipi_dsi_dcs_set_display_brightness(dsi, 3538);
 					rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_HBM_ENTER_SWITCH);
@@ -1098,9 +1202,6 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 					enable_global_hbm_flags = 1;
 				} else {
 					if(enable_global_hbm_flags == 1) {
-						if(bl_lvl < HBM_BASE_600NIT) {
-							mipi_dsi_dcs_set_display_brightness(dsi, 2047);
-						}
 						payload[1] = 0x20;
 						memset(&msg, 0, sizeof(msg));
 						msg.channel = dsi->channel;
@@ -1109,6 +1210,7 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 						msg.type = MIPI_DSI_DCS_SHORT_WRITE_PARAM;
 						rc = ops->transfer(dsi->host, &msg);
 						enable_global_hbm_flags = 0;
+						mipi_dsi_dcs_set_display_brightness(dsi, 2047);
 					}
 					if (bl_lvl > PANEL_MAX_NOMAL_BRIGHTNESS) {
 						bl_lvl = backlight_500_600nit_buf[bl_lvl - PANEL_MAX_NOMAL_BRIGHTNESS];
@@ -1116,9 +1218,9 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 				}
 			}
 		} else if ((!strcmp(panel->name,"samsung ams643ye01 amoled fhd+ panel") ||
-			!strcmp(panel->name,"samsung ams643ye01 in 20057 amoled fhd+ panel")) &&
+			!strcmp(panel->name,"samsung ams643ye01 in 20057 amoled fhd+ panel") ||
+			!strcmp(panel->name,"s6e3fc3_fhd_oled_cmd_samsung")) &&
 			OPLUS_DISPLAY_AOD_SCENE != get_oplus_display_scene()) {
-
 			if ((bl_lvl > panel->bl_config.bl_normal_max_level) && (oplus_last_backlight <= panel->bl_config.bl_normal_max_level))
 				rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_HBM_ENTER_SWITCH);
 			else if((bl_lvl <= panel->bl_config.bl_normal_max_level) && (oplus_last_backlight > panel->bl_config.bl_normal_max_level))
@@ -1310,10 +1412,7 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 //#ifdef OPLUS_BUG_STABILITY
 	if(!strcmp(panel->name,"samsung amb655xl08 amoled fhd+ panel")) {
 		lcdinfo_notify(LCM_BRIGHTNESS_TYPE, &bl_lvl);
-		DSI_INFO("backlight type:%d lvl:%d\n", bl->type, bl_lvl);
-	}
-	if(panel->oplus_priv.is_oplus_project) {
-		DSI_INFO("backlight type:%d lvl:%d\n", bl->type, bl_lvl);
+		DSI_DEBUG("backlight type:%d lvl:%d\n", bl->type, bl_lvl);
 	}
 	panel->bl_config.bl_lvl_backup = bl_lvl;
 //#endif /* OPLUS_BUG_STABILITY */
@@ -1325,6 +1424,21 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 		rc = dsi_panel_update_backlight(panel, bl_lvl);
 		break;
 	case DSI_BACKLIGHT_EXTERNAL:
+		#ifdef OPLUS_BUG_STABILITY
+		/* add for oslo bringup */
+		if(panel->nt36523w_ktz8866){
+			if(bl_lvl < 0 || bl_lvl > 0x7ff) {
+				DSI_ERR("%d %s oslo invalid backlight value = %d\n", __LINE__, __func__, bl_lvl);
+			} else {
+				if(1 == dis_set_first_level) {
+					rc = mipi_dsi_dcs_set_display_brightness(&panel->mipi_device, 2047);
+					if (rc < 0)
+						DSI_ERR("failed to update dcs backlight:%d\n", bl_lvl);
+				}
+				rc = lcd_bl_set_led_brightness(bl_lvl);
+			}
+		}
+		#endif
 		break;
 	case DSI_BACKLIGHT_PWM:
 		rc = dsi_panel_update_pwm_backlight(panel, bl_lvl);
@@ -2475,6 +2589,8 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-gamma-lowbl-command",
 /* add for optimizing the display effect under low backlight brightness */
 	"qcom,mdss-dsi-panel-dimming-gamma-command",
+	"qcom,mdss-dsi-fps60-command",
+	"qcom,mdss-dsi-fps120-command",
 #if defined(OPLUS_FEATURE_PXLW_IRIS5)
 	"iris,abyp-panel-command",
 #endif
@@ -2591,6 +2707,8 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-gamma-lowbl-command-state",
 /* add for optimizing the display effect under low backlight brightness */
 	"qcom,mdss-dsi-panel-dimming-gamma-command-state",
+	"qcom,mdss-dsi-fps60-command-state",
+	"qcom,mdss-dsi-fps120-command-state",
 #if defined(OPLUS_FEATURE_PXLW_IRIS5)
 	"iris,abyp-panel-command-state",
 #endif
@@ -2914,6 +3032,13 @@ static int dsi_panel_parse_misc_features(struct dsi_panel *panel)
 	panel->reset_gpio_always_on = utils->read_bool(utils->data,
 			"qcom,platform-reset-gpio-always-on");
 
+	#ifdef OPLUS_BUG_STABILITY
+	panel->nt36523w_ktz8866 = utils->read_bool(utils->data,
+			"qcom,nt36523w-ktz8866");
+	/* A tablet Pad, modify mipi */
+	mipi_c_phy_oslo_flag = panel->nt36523w_ktz8866;
+	#endif
+
 	return 0;
 }
 
@@ -3056,6 +3181,17 @@ static int dsi_panel_parse_gpios(struct dsi_panel *panel)
 
 	if (!gpio_is_valid(panel->reset_config.panel_vddr_aod_en_gpio)) {
 		DSI_ERR("[%s] failed get panel_vddr_aod_en_gpio, rc=%d\n", panel->name, rc);
+	}
+	panel->vddr_gpio = utils->get_named_gpio(utils->data, "qcom,vddr-gpio", 0);
+	if (!gpio_is_valid(panel->vddr_gpio)) {
+		DSI_DEBUG("[%s] vddr-gpio is not set, rc=%d\n",
+			 panel->name, rc);
+	}
+
+	panel->reset_config.tp_cs_gpio = utils->get_named_gpio(utils->data,
+					      "qcom,platform-tp-cs-gpio", 0);
+	if (!gpio_is_valid(panel->reset_config.tp_cs_gpio)) {
+		DSI_ERR("[%s] failed get qcom,platform-tp-cs-gpio, rc=%d\n", panel->name, rc);
 	}
 #endif
 
@@ -3957,6 +4093,40 @@ static int dsi_panel_parse_dms_info(struct dsi_panel *panel)
 	return 0;
 };
 
+#ifdef OPLUS_BUG_STABILITY
+int dsi_panel_fps60_cmd_set(struct dsi_panel *panel)
+{
+       int rc = 0;
+       if (!panel) {
+               DSI_ERR("Invalid params\n");
+               return -EINVAL;
+       }
+       mutex_lock(&panel->panel_lock);
+       rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_FPS60);
+       if (rc)
+           DSI_ERR("fps [%s] failed to send DSI_CMD_SET_FPS60 cmds, rc=%d\n",
+                   panel->name, rc);
+       mutex_unlock(&panel->panel_lock);
+       return rc;
+}
+int dsi_panel_fps120_cmd_set(struct dsi_panel *panel)
+{
+
+       int rc = 0;
+       if (!panel) {
+               DSI_ERR("Invalid params\n");
+               return -EINVAL;
+       }
+       mutex_lock(&panel->panel_lock);
+       rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_FPS120);
+       if (rc)
+           DSI_ERR("fps [%s] failed to send DSI_CMD_SET_FPS120 cmds, rc=%d\n",
+                   panel->name, rc);
+       mutex_unlock(&panel->panel_lock);
+       return rc;
+}
+#endif /*OPLUS_BUG_STABILITY*/
+
 /*
  * The length of all the valid values to be checked should not be greater
  * than the length of returned data from read command.
@@ -4378,7 +4548,6 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 		goto error;
 
 	mutex_init(&panel->panel_lock);
-	mutex_init(&panel->panel_tx_lock);
 
 	return panel;
 error:
@@ -5168,7 +5337,9 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 
 #ifdef OPLUS_BUG_STABILITY
 	if ((!strcmp(panel->oplus_priv.vendor_name, "AMS643YE01") ||
-		!strcmp(panel->oplus_priv.vendor_name, "AMS643YE01IN20057")) &&
+		!strcmp(panel->oplus_priv.vendor_name, "AMS643YE01IN20057") ||
+		!strcmp(panel->name, "s6e3fc3_fhd_oled_cmd_samsung") ||
+		!strcmp(panel->oplus_priv.vendor_name, "SOFE03F")) &&
 		(panel->bl_config.bl_level > panel->bl_config.brightness_normal_max_level)) {
 		if (!strcmp(panel->name,"samsung ams643ye01 in 20127 amoled fhd+ panel")) {
 			rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_HBM_ENTER1_SWITCH);
@@ -5202,7 +5373,8 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 #ifdef OPLUS_BUG_STABILITY
 	if (!strcmp(panel->name,"samsung amb655uv01 amoled fhd+ panel with DSC") ||
 		!strcmp(panel->name,"boe nt37800 amoled fhd+ panel with DSC") ||
-		!strcmp(panel->name,"samsung fhd amoled")) {
+		!strcmp(panel->name,"samsung fhd amoled") ||
+		!strcmp(panel->name, "nt36523 lcd vid mode dsi panel")) {
 		usleep_range(6000, 6100);
 		dsi_panel_reset(panel);
 #endif /* OPLUS_BUG_STABILITY */
@@ -5222,8 +5394,7 @@ int dsi_panel_prepare(struct dsi_panel *panel)
 #endif /* OPLUS_BUG_STABILITY */
 
 #ifdef OPLUS_BUG_STABILITY
-	if (strstr(panel->oplus_priv.vendor_name,"NT36672C"))
-		lcd_queue_load_tp_fw();
+	lcd_queue_load_tp_fw();
 #endif
 
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_PRE_ON);
@@ -5621,6 +5792,28 @@ int dsi_panel_enable(struct dsi_panel *panel)
 #ifdef OPLUS_BUG_STABILITY
 	pr_err("%s\n", __func__);
 #endif
+
+#ifdef OPLUS_BUG_STABILITY
+	if (panel->nt36523w_ktz8866) {
+		mutex_lock(&panel->panel_lock);
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_ON);
+		if (rc) {
+			DSI_ERR("[%s] failed to send DSI_CMD_SET_ON cmds, rc=%d\n", panel->name, rc);
+		} else {
+			panel->panel_initialized = true;
+			panel_initialized_flag = true;
+		}
+		mutex_unlock(&panel->panel_lock);
+
+		if (panel->cur_mode->timing.refresh_rate == 60) {
+			rc = dsi_panel_fps60_cmd_set(panel);
+			if (rc)
+				DSI_ERR("fps60 failed to set cmd\n");
+		}
+		return rc;
+	}
+#endif /*OPLUS_BUG_STABILITY*/
+
 	mutex_lock(&panel->panel_lock);
 
 #ifdef OPLUS_FEATURE_ADFR
@@ -5785,6 +5978,7 @@ int dsi_panel_disable(struct dsi_panel *panel)
 
 #ifdef OPLUS_BUG_STABILITY
 	panel->is_hbm_enabled = false;
+	panel_initialized_flag = false;
 	set_oplus_display_power_status(OPLUS_DISPLAY_POWER_OFF);
 #endif
 	panel->power_mode = SDE_MODE_DPMS_OFF;

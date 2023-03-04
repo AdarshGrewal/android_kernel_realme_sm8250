@@ -56,6 +56,13 @@
 #include "oplus_adfr.h"
 #endif
 
+#ifdef OPLUS_BUG_STABILITY
+volatile bool panel_initialized_flag = true;
+volatile int old_refresh_rate = 120;
+extern int dsi_panel_fps120_cmd_set(struct dsi_panel *panel);
+#endif /*OPLUS_BUG_STABILITY*/
+
+
 #define SDE_DEBUG_ENC(e, fmt, ...) SDE_DEBUG("enc%d " fmt,\
 		(e) ? (e)->base.base.id : -1, ##__VA_ARGS__)
 
@@ -5060,21 +5067,12 @@ static bool is_support_panel(struct drm_connector *connector)
 	}
 }
 
-bool is_spread_backlight(struct dsi_display *display, int level)
+bool is_spread_backlight(int level)
 {
-	if ((display != NULL) && (display->panel != NULL)
-		&& (level <= display->panel->oplus_priv.sync_brightness_level) && (level >= 2)) {
+	if((level <= 200)&&(level >= 2))
 		return true;
-	}
-	else if (((display != NULL) && (display->panel != NULL)
-		&& (display->panel->oplus_priv.dc_apollo_sync_enable)
-		&& (((level <= display->panel->oplus_priv.sync_brightness_level) && (level >= 2))
-		|| (level == display->panel->oplus_priv.dc_apollo_sync_brightness_level)))) {
-		return true;
-	}
-	else {
+	else
 		return false;
-	}
 }
 
 int oplus_backlight_wait_vsync(struct drm_encoder *drm_enc)
@@ -5144,21 +5142,6 @@ int oplus_sync_panel_brightness(enum oplus_sync_method method, void *phys_enc)
 		SDE_ATRACE_END("sync_panel_brightness");
 	return rc;
 }
-
-int dc_apollo_sync_hbmon(struct dsi_display *display)
-{
-	if (display == NULL)
-		return 0;
-	if (display->panel == NULL)
-		return 0;
-
-	if (display->panel->oplus_priv.dc_apollo_sync_enable && display->panel->is_hbm_enabled)
-		return 1;
-	else
-		return 0;
-}
-
-extern int oplus_dimlayer_hbm;
 #endif
 
 int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
@@ -5220,8 +5203,7 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 #ifdef OPLUS_BUG_STABILITY
 	if ((is_support_panel(sde_enc->cur_master->connector) == true)) {
 		if (sde_enc->num_phys_encs > 0) {
-			if ((get_current_display_framerate(sde_enc->cur_master->connector) >= 75) && is_spread_backlight(get_main_display(), g_new_bk_level)
-					&& !dc_apollo_sync_hbmon(get_main_display())) {
+			if ((get_current_display_framerate(sde_enc->cur_master->connector) >= 75) && is_spread_backlight(g_new_bk_level)) {
 				if (g_new_bk_level != get_current_display_brightness(sde_enc->cur_master->connector)) {
 					oplus_sync_panel_brightness(OPLUS_PREPARE_KICKOFF_METHOD, sde_enc->phys_encs[0]);
 				}
@@ -5385,6 +5367,12 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error)
 	ktime_t wakeup_time;
 	unsigned int i;
 
+	#ifdef OPLUS_BUG_STABILITY
+	struct sde_connector *sde_conn;
+	struct dsi_display *display;
+	int rc;
+	#endif /*OPLUS_BUG_STABILITY*/
+
 	if (!drm_enc) {
 		SDE_ERROR("invalid encoder\n");
 		return;
@@ -5402,6 +5390,34 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error)
 	if (is_error)
 		_sde_encoder_reset_ctl_hw(drm_enc);
 
+#ifdef OPLUS_BUG_STABILITY
+	if(sde_enc->disp_info.intf_type == DRM_MODE_CONNECTOR_DSI) {
+		sde_conn = to_sde_connector(sde_enc->cur_master->connector);
+		if (!sde_conn) {
+			SDE_ERROR("fps sde_encoder_kickoff sde_conn is null\n");
+			return;
+		}
+		display = sde_conn->display;
+		if (!display) {
+			SDE_ERROR("fps sde_encoder_kickoff display is null\n");
+			return;
+		}
+	}
+
+	if((sde_enc->disp_info.intf_type == DRM_MODE_CONNECTOR_DSI)
+			&& (display->panel->nt36523w_ktz8866) && panel_initialized_flag) {
+		if(sde_enc->mode_info.frame_rate == 120 && old_refresh_rate != sde_enc->mode_info.frame_rate) {
+			rc = dsi_panel_fps120_cmd_set(display->panel);
+			if(rc) {
+				SDE_ERROR("fps120 failed to set cmd\n");
+			} else {
+				pr_info("fps120 success to set cmd, fps old_fps=%d\n", old_refresh_rate);
+				old_refresh_rate = sde_enc->mode_info.frame_rate;
+			}
+		}
+	}
+#endif /*OPLUS_BUG_STABILITY*/
+
 #if defined(OPLUS_FEATURE_PXLW_IRIS5)
 	iris_sde_encoder_kickoff(sde_enc->num_phys_encs,
 			sde_enc->phys_encs[0]);
@@ -5414,7 +5430,7 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error)
 	if (sde_enc && sde_enc->cur_master && sde_enc->cur_master->connector) {
 		if ((is_support_panel(sde_enc->cur_master->connector) == true)) {
 			if (sde_enc->num_phys_encs > 0) {
-				if ((get_current_display_framerate(sde_enc->cur_master->connector) < 75) && is_spread_backlight(get_main_display(), g_new_bk_level)) {
+				if ((get_current_display_framerate(sde_enc->cur_master->connector) < 75) && is_spread_backlight(g_new_bk_level)) {
 					if (g_new_bk_level != get_current_display_brightness(sde_enc->cur_master->connector)) {
 						oplus_sync_panel_brightness(OPLUS_POST_KICKOFF_METHOD, sde_enc->phys_encs[0]);
 					}

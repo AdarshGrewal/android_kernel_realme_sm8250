@@ -21,6 +21,10 @@
 #define DEFAULT_PANEL_JITTER_ARRAY_SIZE		2
 #define DEFAULT_PANEL_PREFILL_LINES	25
 
+#ifdef OPLUS_BUG_STABILITY
+extern volatile int old_refresh_rate;
+#endif /*OPLUS_BUG_STABILITY*/
+
 static struct dsi_display_mode_priv_info default_priv_info = {
 	.panel_jitter_numer = DEFAULT_PANEL_JITTER_NUMERATOR,
 	.panel_jitter_denom = DEFAULT_PANEL_JITTER_DENOMINATOR,
@@ -192,8 +196,7 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 		return;
 	}
 
-	if (bridge->encoder->crtc->state->active_changed)
-		atomic_set(&c_bridge->display->panel->esd_recovery_pending, 0);
+	atomic_set(&c_bridge->display->panel->esd_recovery_pending, 0);
 
 	/* By this point mode should have been validated through mode_fixup */
 	rc = dsi_display_set_mode(c_bridge->display,
@@ -246,7 +249,22 @@ static void dsi_bridge_enable(struct drm_bridge *bridge)
 		DSI_ERR("Invalid params\n");
 		return;
 	}
-
+	#ifdef OPLUS_BUG_STABILITY
+	if (c_bridge->display->panel->nt36523w_ktz8866) {
+		if (c_bridge->display->panel->panel_initialized) {
+			if (c_bridge->display->panel->cur_mode->timing.refresh_rate == 60
+					&& old_refresh_rate != c_bridge->display->panel->cur_mode->timing.refresh_rate) {
+				rc = dsi_panel_fps60_cmd_set(c_bridge->display->panel);
+				if (rc) {
+					DSI_ERR("fps60 [%s] failed to set cmd\n", c_bridge->display->name);
+				} else {
+					pr_info("fps60 [%s] success to set cmd,fps old_fps=%d\n", c_bridge->display->name, old_refresh_rate);
+					old_refresh_rate = c_bridge->display->panel->cur_mode->timing.refresh_rate;
+				}
+			}
+		}
+	}
+	#endif /*OPLUS_BUG_STABILITY*/
 	if (c_bridge->dsi_mode.dsi_mode_flags &
 			(DSI_MODE_FLAG_SEAMLESS | DSI_MODE_FLAG_VRR |
 			 DSI_MODE_FLAG_DYN_CLK)) {
